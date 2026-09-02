@@ -106,7 +106,7 @@
     <div class="summary" id="summaryBar" hidden>
       <div class="summary-card ok"><div class="num" id="sumOk">0</div><div class="lbl">OK</div></div>
       <div class="summary-card go"><div class="num" id="sumGo">0</div><div class="lbl">GO sin comunicar</div></div>
-      <div class="summary-card iox"><div class="num" id="sumIox">0</div><div class="lbl">IOX Cold no detectado</div></div>
+      <div class="summary-card iox"><div class="num" id="sumIox">0</div><div class="lbl">IOX no detectado</div></div>
       <div class="summary-card cargo"><div class="num" id="sumCargo">0</div><div class="lbl">Sin termógrafo/sondas</div></div>
       <div class="summary-card machine"><div class="num" id="sumMachine">0</div><div class="lbl">Sin máquina de frío</div></div>
     </div>
@@ -150,16 +150,25 @@
     { id: 'RemoteProbe2TemperatureId', label: 'Sonda remota 2' },
     { id: 'RemoteProbe3TemperatureId', label: 'Sonda remota 3' }
   ];
+  // Estado del termógrafo: 0 Deshabilitado / 1 Activado / 2 Desactivado / 3 Error.
+  var THERMOGRAPH_STATUS_DIAGNOSTIC_ID = 'ThermographStatusId';
+  var THERMOGRAPH_STATUS_ERROR_VALUE = 3;
 
-  // IOX Cold: igual que la máquina de frío, no todos los activos usan IOX Cold
-  // (algunos usan IOX Ureader, del que aún no tengo diagnóstico de conexión),
-  // así que solo se exige frescura en los activos donde consta histórico de IOX Cold.
+  // IOX Ureader e IOX Cold: cubren ambas familias de hardware (algunos activos usan una,
+  // otros la otra). Igual que con la máquina de frío, solo se exige frescura en los
+  // activos donde consta histórico de alguno de estos diagnósticos ("equipado").
   var IOX_DIAGNOSTICS = [
-    { id: 'DiagnosticIOXColdConnectionStatusId', label: 'IOX Cold - conexión' },
-    { id: 'DiagnosticIOXColdRuggedConnectionStatusId', label: 'IOX Cold Rugged - conexión' },
-    { id: 'DiagnosticExternalDeviceIOXColdChainId', label: 'IOX Cold Chain - dispositivo' }
+    { id: 'aLomz5it8GU-Z2Gwvd4kNRg', label: 'uReader - dispositivo externo' },
+    { id: 'azRjqdVaIxkSmbO5V-0khgA', label: 'uReader (Intendia) - estado' },
+    { id: 'DiagnosticExternalDeviceIOXColdChainId', label: 'IOX-COLD - dispositivo externo' },
+    { id: 'DiagnosticIOXColdConnectionStatusId', label: 'IOX-COLD - conexión' },
+    { id: 'DiagnosticIOXColdRuggedConnectionStatusId', label: 'IOX-COLD RUGGED - conexión' }
   ];
-  var IOX_EQUIPPED_DIAGNOSTIC_ID = 'DiagnosticIOXColdConnectionStatusId';
+  // Presencia del periférico (equipado): uno de cada familia, sirven de proxy fiable.
+  var IOX_EQUIPPED_DIAGNOSTIC_IDS = ['aLomz5it8GU-Z2Gwvd4kNRg', 'DiagnosticExternalDeviceIOXColdChainId'];
+  // Estos dos sí tienen semántica de valor confirmada: 0 Desconectado / 1 Conexo.
+  var IOX_CONNECTION_VALUE_IDS = ['DiagnosticIOXColdConnectionStatusId', 'DiagnosticIOXColdRuggedConnectionStatusId'];
+  var IOX_DISCONNECTED_VALUE = 0;
 
   // Máquina de frío: no todos los activos la tienen conectada, por eso se detecta
   // "equipado" por separado (ventana más larga) antes de exigir datos recientes.
@@ -248,17 +257,17 @@
       var now = new Date();
       var freshFrom = new Date(now.getTime() - CONFIG.lookbackDaysFreshness * 86400000);
       var equippedFrom = new Date(now.getTime() - CONFIG.lookbackDaysEquipped * 86400000);
-      var fields = { fields: ['device', 'dateTime'] };
+      var fields = { fields: ['device', 'dateTime', 'data'] };
 
       var calls = [];
-      // 0: LogRecord -> comunicación del GO
+      // LogRecord -> comunicación del GO
       calls.push(['Get', {
         typeName: 'LogRecord',
         search: { fromDate: freshFrom.toISOString(), toDate: now.toISOString() },
         resultsLimit: 15000,
-        propertySelector: fields
+        propertySelector: { fields: ['device', 'dateTime'] }
       }]);
-      // 1..5: termógrafo/sondas
+      // termógrafo/sondas (frescura + valor, para detectar ThermographStatusId=Error)
       CARGO_DIAGNOSTICS.forEach(function (d) {
         calls.push(['Get', {
           typeName: 'StatusData',
@@ -267,7 +276,7 @@
           propertySelector: fields
         }]);
       });
-      // 6..8: IOX Cold (frescura)
+      // IOX Ureader + IOX Cold (frescura + valor, para detectar Desconectado=0)
       IOX_DIAGNOSTICS.forEach(function (d) {
         calls.push(['Get', {
           typeName: 'StatusData',
@@ -276,14 +285,16 @@
           propertySelector: fields
         }]);
       });
-      // 9: IOX Cold (¿equipado?, ventana larga)
-      calls.push(['Get', {
-        typeName: 'StatusData',
-        search: { diagnosticSearch: { id: IOX_EQUIPPED_DIAGNOSTIC_ID }, fromDate: equippedFrom.toISOString(), toDate: now.toISOString() },
-        resultsLimit: 20000,
-        propertySelector: { fields: ['device'] }
-      }]);
-      // 10..14: máquina de frío (frescura)
+      // IOX (¿equipado?, ventana larga) - una consulta por familia de hardware
+      IOX_EQUIPPED_DIAGNOSTIC_IDS.forEach(function (diagId) {
+        calls.push(['Get', {
+          typeName: 'StatusData',
+          search: { diagnosticSearch: { id: diagId }, fromDate: equippedFrom.toISOString(), toDate: now.toISOString() },
+          resultsLimit: 20000,
+          propertySelector: { fields: ['device'] }
+        }]);
+      });
+      // máquina de frío (frescura)
       MACHINE_DIAGNOSTICS.forEach(function (d) {
         calls.push(['Get', {
           typeName: 'StatusData',
@@ -292,7 +303,7 @@
           propertySelector: fields
         }]);
       });
-      // 15: máquina de frío (¿equipado?, ventana larga)
+      // máquina de frío (¿equipado?, ventana larga)
       calls.push(['Get', {
         typeName: 'StatusData',
         search: { diagnosticSearch: { id: MACHINE_EQUIPPED_DIAGNOSTIC_ID }, fromDate: equippedFrom.toISOString(), toDate: now.toISOString() },
@@ -327,10 +338,26 @@
       return map;
     }
 
+    // Como maxByDevice, pero conserva también el valor (data) del registro más reciente.
+    function latestByDevice(records, dateField, into) {
+      var map = into || {};
+      (records || []).forEach(function (r) {
+        if (!r || !r.device || !r.device.id || !r[dateField]) return;
+        var t = new Date(r[dateField]).getTime();
+        if (!map[r.device.id] || t > map[r.device.id].time) map[r.device.id] = { time: t, data: r.data };
+      });
+      return map;
+    }
+
     function toIdSet(records) {
       var set = {};
       (records || []).forEach(function (r) { if (r && r.device && r.device.id) set[r.device.id] = true; });
       return set;
+    }
+
+    function arrayByDiagId(arrays, diagnostics, diagId) {
+      var i = diagnostics.map(function (d) { return d.id; }).indexOf(diagId);
+      return i === -1 ? [] : arrays[i];
     }
 
     function processResults(devices, results, now) {
@@ -338,7 +365,7 @@
       var logRecords = results[idx++] || [];
       var cargoArrays = CARGO_DIAGNOSTICS.map(function () { return results[idx++] || []; });
       var ioxArrays = IOX_DIAGNOSTICS.map(function () { return results[idx++] || []; });
-      var ioxEquippedRecords = results[idx++] || [];
+      var ioxEquippedRecords = IOX_EQUIPPED_DIAGNOSTIC_IDS.map(function () { return results[idx++] || []; });
       var machineArrays = MACHINE_DIAGNOSTICS.map(function () { return results[idx++] || []; });
       var machineEquippedRecords = results[idx++] || [];
       var tripRecords = results[idx++] || [];
@@ -348,11 +375,20 @@
       cargoArrays.forEach(function (arr) { maxByDevice(arr, 'dateTime', cargoLastSeen); });
       var ioxLastSeen = {};
       ioxArrays.forEach(function (arr) { maxByDevice(arr, 'dateTime', ioxLastSeen); });
-      var ioxEquippedSet = toIdSet(ioxEquippedRecords);
+      var ioxEquippedSet = {};
+      ioxEquippedRecords.forEach(function (arr) { Object.assign ? Object.assign(ioxEquippedSet, toIdSet(arr)) : (function () { var s = toIdSet(arr); for (var k in s) ioxEquippedSet[k] = true; })(); });
       var machineLastSeen = {};
       machineArrays.forEach(function (arr) { maxByDevice(arr, 'dateTime', machineLastSeen); });
       var machineEquippedSet = toIdSet(machineEquippedRecords);
       var tripLastSeen = maxByDevice(tripRecords, 'stop');
+
+      // Señales con semántica de valor conocida (permiten un diagnóstico explícito,
+      // no solo "silencio"): conexión IOX (0=Desconectado) y estado de termógrafo (3=Error).
+      var ioxConnectionLatest = {};
+      IOX_CONNECTION_VALUE_IDS.forEach(function (diagId) {
+        latestByDevice(arrayByDiagId(ioxArrays, IOX_DIAGNOSTICS, diagId), 'dateTime', ioxConnectionLatest);
+      });
+      var thermoStatusLatest = latestByDevice(arrayByDiagId(cargoArrays, CARGO_DIAGNOSTICS, THERMOGRAPH_STATUS_DIAGNOSTIC_ID), 'dateTime', {});
 
       var relevant = devices.filter(function (dev) {
         return !!cargoLastSeen[dev.id] || !!machineEquippedSet[dev.id] || !!ioxEquippedSet[dev.id];
@@ -363,10 +399,12 @@
         var cargoTime = cargoLastSeen[dev.id] || null;
         var ioxEquipped = !!ioxEquippedSet[dev.id];
         var ioxTime = ioxLastSeen[dev.id] || null;
+        var ioxExplicitDisconnected = !!(ioxConnectionLatest[dev.id] && ioxConnectionLatest[dev.id].data === IOX_DISCONNECTED_VALUE);
+        var thermoExplicitError = !!(thermoStatusLatest[dev.id] && thermoStatusLatest[dev.id].data === THERMOGRAPH_STATUS_ERROR_VALUE);
         var machineEquipped = !!machineEquippedSet[dev.id];
         var machineTime = machineLastSeen[dev.id] || null;
         var tripTime = tripLastSeen[dev.id] || null;
-        var status = computeStatus(goTime, ioxEquipped, ioxTime, cargoTime, machineEquipped, machineTime, now);
+        var status = computeStatus(goTime, ioxEquipped, ioxTime, ioxExplicitDisconnected, cargoTime, thermoExplicitError, machineEquipped, machineTime, now);
         return {
           device: dev, status: status,
           goTime: goTime, cargoTime: cargoTime,
@@ -391,19 +429,22 @@
         showStatus(null, '');
         el.statusMsg.hidden = false;
         el.statusMsg.className = 'status-msg';
-        el.statusMsg.innerHTML = '<span>No se ha detectado ningún activo con datos de termógrafo, sondas, IOX Cold o máquina de frío en los últimos ' + CONFIG.lookbackDaysEquipped + ' días.</span>';
+        el.statusMsg.innerHTML = '<span>No se ha detectado ningún activo con datos de termógrafo, sondas, IOX o máquina de frío en los últimos ' + CONFIG.lookbackDaysEquipped + ' días.</span>';
       }
     }
 
-    // Prioridad: GO -> IOX (solo si consta histórico de IOX Cold) -> termógrafo/sondas -> máquina (solo si equipada).
-    // Un asset con IOX Ureader en vez de IOX Cold no tiene histórico de IOX aquí, así que
-    // cae directo a la comprobación de termógrafo/sondas sin falsos positivos de "IOX no detectado".
-    function computeStatus(goTime, ioxEquipped, ioxTime, cargoTime, machineEquipped, machineTime, now) {
+    // Prioridad: GO -> IOX (equipado, o desconexión explícita) -> termógrafo/sondas (o error
+    // explícito de termógrafo) -> máquina (solo si equipada). Un asset sin histórico de IOX
+    // Ureader/Cold cae directo a termógrafo/sondas, sin falsos positivos de "IOX no detectado".
+    function computeStatus(goTime, ioxEquipped, ioxTime, ioxExplicitDisconnected, cargoTime, thermoExplicitError, machineEquipped, machineTime, now) {
       if (!isFresh(goTime, CONFIG.thresholdHoursGo, now)) {
         return { level: 'go', label: 'GO no comunica' };
       }
-      if (ioxEquipped && !isFresh(ioxTime, CONFIG.thresholdHoursCargo, now)) {
-        return { level: 'iox', label: 'IOX Cold no detectado' };
+      if (ioxExplicitDisconnected || (ioxEquipped && !isFresh(ioxTime, CONFIG.thresholdHoursCargo, now))) {
+        return { level: 'iox', label: 'IOX no detectado' };
+      }
+      if (thermoExplicitError) {
+        return { level: 'cargo', label: 'Termógrafo con error' };
       }
       if (!isFresh(cargoTime, CONFIG.thresholdHoursCargo, now)) {
         return { level: 'cargo', label: 'Sin termógrafo/sondas' };
@@ -447,13 +488,13 @@
       hideStatus();
 
       var thead = '<thead><tr>' +
-        '<th>Activo</th><th>Estado</th><th>GO</th><th>IOX Cold</th><th>Termógrafo/Sondas</th><th>Máquina de frío</th><th>Último viaje</th>' +
+        '<th>Activo</th><th>Estado</th><th>GO</th><th>IOX</th><th>Termógrafo/Sondas</th><th>Máquina de frío</th><th>Último viaje</th>' +
         '</tr></thead>';
 
       var tbody = '<tbody>' + visible.map(function (r) {
         var ioxCell = r.ioxEquipped
           ? cellTime(r.ioxTime, now, CONFIG.thresholdHoursCargo)
-          : '<span class="cell-na">Sin histórico IOX Cold</span>';
+          : '<span class="cell-na">Sin histórico IOX</span>';
         var machineCell = r.machineEquipped
           ? cellTime(r.machineTime, now, CONFIG.thresholdHoursMachine)
           : '<span class="cell-na">Sin máquina conectada</span>';
