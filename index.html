@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor de Frigoríficos</title>
+<style>
+  :root {
+    --color-bg: #F4F8FB;
+    --color-surface: #FFFFFF;
+    --color-primary: #0F2A47;
+    --color-primary-hover: #163A5F;
+    --color-accent: #0EA5E9;
+    --color-text: #1A2433;
+    --color-text-muted: #5B6B7C;
+    --color-border: #DCE6EF;
+    --color-ok-bg: #E7F6EE; --color-ok-fg: #067647; --color-ok-bar: #059669;
+    --color-go-bg: #FCEAEA; --color-go-fg: #B3261E; --color-go-bar: #DC2626;
+    --color-iox-bg: #FDEAE0; --color-iox-fg: #B4460A; --color-iox-bar: #EA580C;
+    --color-cargo-bg: #FDF3E3; --color-cargo-fg: #92590A; --color-cargo-bar: #CA8A04;
+    --color-machine-bg: #EEEDFC; --color-machine-fg: #4338CA; --color-machine-bar: #6366F1;
+    --color-na-bg: #EEF2F5; --color-na-fg: #64748B; --color-na-bar: #94A3B8;
+    --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: var(--font-ui); background: var(--color-bg); color: var(--color-text); font-size: 14px; line-height: 1.5; }
+  .app { max-width: 1180px; margin: 0 auto; padding: 20px 20px 60px; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+  .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .topbar h1 { font-size: 20px; margin: 0; color: var(--color-primary); font-weight: 700; }
+  .subtitle { margin: 2px 0 0; color: var(--color-text-muted); font-size: 13px; }
+
+  .btn { font: inherit; font-weight: 600; border-radius: 7px; padding: 9px 16px; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: var(--color-primary); color: #fff; }
+  .btn-primary:hover { background: var(--color-primary-hover); }
+  .btn-primary:disabled { opacity: .6; cursor: default; }
+  .btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+
+  .summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .summary-card { flex: 1; min-width: 130px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 12px 14px; border-top: 3px solid var(--color-border); }
+  .summary-card .num { font-size: 22px; font-weight: 700; color: var(--color-text); font-family: var(--font-mono); }
+  .summary-card .lbl { font-size: 12px; color: var(--color-text-muted); }
+  .summary-card.ok { border-top-color: var(--color-ok-bar); }
+  .summary-card.go { border-top-color: var(--color-go-bar); }
+  .summary-card.iox { border-top-color: var(--color-iox-bar); }
+  .summary-card.cargo { border-top-color: var(--color-cargo-bar); }
+  .summary-card.machine { border-top-color: var(--color-machine-bar); }
+
+  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+  .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--color-text-muted); user-select: none; cursor: pointer; }
+  .toggle input { cursor: pointer; }
+  .updated-at { font-size: 12px; color: var(--color-text-muted); }
+
+  .panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0; overflow: hidden; }
+  .status-msg { padding: 18px 20px; display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); }
+  .status-msg.error { color: var(--color-go-fg); background: var(--color-go-bg); }
+  .spinner { width: 16px; height: 16px; border-radius: 50%; flex: none; border: 2px solid var(--color-border); border-top-color: var(--color-accent); animation: spin .7s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .table-scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { padding: 9px 14px; border-bottom: 1px solid var(--color-border); text-align: left; white-space: nowrap; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--color-text-muted); background: #FAFCFE; position: sticky; top: 0; }
+  tbody tr:hover { background: #FAFCFE; }
+  .device-name { font-weight: 600; }
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge.ok { background: var(--color-ok-bg); color: var(--color-ok-fg); }
+  .badge.go { background: var(--color-go-bg); color: var(--color-go-fg); }
+  .badge.iox { background: var(--color-iox-bg); color: var(--color-iox-fg); }
+  .badge.cargo { background: var(--color-cargo-bg); color: var(--color-cargo-fg); }
+  .badge.machine { background: var(--color-machine-bg); color: var(--color-machine-fg); }
+  .cell-muted { color: var(--color-text-muted); font-family: var(--font-mono); font-size: 12px; }
+  .cell-na { color: #B8C4CF; font-style: italic; }
+  .empty-cell { text-align: center; padding: 40px 20px; color: var(--color-text-muted); }
+
+  @media (max-width: 720px) {
+    .app { padding: 14px; }
+    .summary { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="topbar-left">
+        <svg width="36" height="36" viewBox="0 0 32 32" aria-hidden="true">
+          <rect width="32" height="32" rx="6" fill="#0F2A47"/>
+          <path d="M14 6a2.3 2.3 0 0 0-2.3 2.3v9.2a3.6 3.6 0 1 0 4.6 0V8.3A2.3 2.3 0 0 0 14 6z" fill="none" stroke="#EAF6FF" stroke-width="1.5"/>
+          <circle cx="14" cy="19.5" r="2.1" fill="#0EA5E9"/>
+          <rect x="12.9" y="10" width="2.2" height="7" rx="1.1" fill="#0EA5E9"/>
+          <path d="M23 8l3.6 6.2H19.4L23 8z" fill="#F59E0B"/>
+          <rect x="22.5" y="15.4" width="1" height="3.6" fill="#0F2A47"/>
+          <circle cx="23" cy="20" r="0.7" fill="#0F2A47"/>
+        </svg>
+        <div>
+          <h1>Monitor de Frigoríficos</h1>
+          <p class="subtitle">Salud de la cadena de frío &middot; GO &middot; termógrafo/sondas &middot; máquina de frío</p>
+        </div>
+      </div>
+      <button type="button" id="refreshBtn" class="btn btn-primary">Actualizar</button>
+    </header>
+
+    <div class="summary" id="summaryBar" hidden>
+      <div class="summary-card ok"><div class="num" id="sumOk">0</div><div class="lbl">OK</div></div>
+      <div class="summary-card go"><div class="num" id="sumGo">0</div><div class="lbl">GO sin comunicar</div></div>
+      <div class="summary-card iox"><div class="num" id="sumIox">0</div><div class="lbl">IOX Cold no detectado</div></div>
+      <div class="summary-card cargo"><div class="num" id="sumCargo">0</div><div class="lbl">Sin termógrafo/sondas</div></div>
+      <div class="summary-card machine"><div class="num" id="sumMachine">0</div><div class="lbl">Sin máquina de frío</div></div>
+    </div>
+
+    <div class="toolbar">
+      <label class="toggle">
+        <input type="checkbox" id="onlyProblemsToggle">
+        Mostrar solo activos con problema
+      </label>
+      <span class="updated-at" id="updatedAt"></span>
+    </div>
+
+    <section class="panel">
+      <div class="table-scroll">
+        <table id="resultsTable" hidden></table>
+      </div>
+      <div class="status-msg" id="statusMsg"><span class="spinner"></span><span>Analizando la flota&hellip;</span></div>
+    </section>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var CONFIG = {
+    thresholdHoursGo: 6,
+    thresholdHoursCargo: 12,
+    thresholdHoursMachine: 12,
+    lookbackDaysFreshness: 14,
+    lookbackDaysEquipped: 45,
+    autoRefreshMinutes: 5
+  };
+
+  // Termógrafo + sondas remotas: se asume que TODO activo de la flota de cadena de frío
+  // debería tener datos de al menos una de estas fuentes.
+  var CARGO_DIAGNOSTICS = [
+    { id: 'ThermographTemperature1Id', label: 'Termógrafo 1' },
+    { id: 'ThermographTemperature2Id', label: 'Termógrafo 2' },
+    { id: 'ThermographStatusId', label: 'Estado termógrafo' },
+    { id: 'RemoteProbe1TemperatureId', label: 'Sonda remota 1' },
+    { id: 'RemoteProbe2TemperatureId', label: 'Sonda remota 2' },
+    { id: 'RemoteProbe3TemperatureId', label: 'Sonda remota 3' }
+  ];
+
+  // IOX Cold: igual que la máquina de frío, no todos los activos usan IOX Cold
+  // (algunos usan IOX Ureader, del que aún no tengo diagnóstico de conexión),
+  // así que solo se exige frescura en los activos donde consta histórico de IOX Cold.
+  var IOX_DIAGNOSTICS = [
+    { id: 'DiagnosticIOXColdConnectionStatusId', label: 'IOX Cold - conexión' },
+    { id: 'DiagnosticIOXColdRuggedConnectionStatusId', label: 'IOX Cold Rugged - conexión' },
+    { id: 'DiagnosticExternalDeviceIOXColdChainId', label: 'IOX Cold Chain - dispositivo' }
+  ];
+  var IOX_EQUIPPED_DIAGNOSTIC_ID = 'DiagnosticIOXColdConnectionStatusId';
+
+  // Máquina de frío: no todos los activos la tienen conectada, por eso se detecta
+  // "equipado" por separado (ventana más larga) antes de exigir datos recientes.
+  var MACHINE_DIAGNOSTICS = [
+    { id: 'RefrigerationUnitSetTemperatureZone1Id', label: 'Consigna zona 1' },
+    { id: 'RefrigerationUnitSetTemperatureZone2Id', label: 'Consigna zona 2' },
+    { id: 'RefrigerationUnitTemperatureZone1Id', label: 'Retorno zona 1' },
+    { id: 'RefrigerationUnitTemperatureZone2Id', label: 'Retorno zona 2' },
+    { id: 'RefrigerationUnitStatusId', label: 'Estado unidad' }
+  ];
+  var MACHINE_EQUIPPED_DIAGNOSTIC_ID = 'RefrigerationUnitStatusId';
+
+  geotab.addin.coldChainHealthMonitor = function () {
+    var api = null;
+    var el = {};
+    var allRows = [];
+    var autoRefreshTimer = null;
+
+    function $(id) { return document.getElementById(id); }
+
+    function cacheElements() {
+      el.refreshBtn = $('refreshBtn');
+      el.summaryBar = $('summaryBar');
+      el.sumOk = $('sumOk');
+      el.sumGo = $('sumGo');
+      el.sumIox = $('sumIox');
+      el.sumCargo = $('sumCargo');
+      el.sumMachine = $('sumMachine');
+      el.onlyProblemsToggle = $('onlyProblemsToggle');
+      el.updatedAt = $('updatedAt');
+      el.resultsTable = $('resultsTable');
+      el.statusMsg = $('statusMsg');
+    }
+
+    function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+    function formatDateTimeEs(ms) {
+      if (!ms) return null;
+      var d = new Date(ms);
+      return pad2(d.getDate()) + '/' + pad2(d.getMonth() + 1) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes());
+    }
+
+    function hoursAgo(ms, now) {
+      if (!ms) return null;
+      return (now - ms) / 3600000;
+    }
+
+    function isFresh(ms, thresholdHours, now) {
+      if (!ms) return false;
+      return hoursAgo(ms, now) <= thresholdHours;
+    }
+
+    function escapeHtml(str) {
+      var div = document.createElement('div');
+      div.textContent = str === null || str === undefined ? '' : String(str);
+      return div.innerHTML;
+    }
+
+    function showStatus(type, message) {
+      el.statusMsg.hidden = false;
+      el.statusMsg.className = 'status-msg' + (type === 'error' ? ' error' : '');
+      el.statusMsg.innerHTML = (type === 'loading' ? '<span class="spinner"></span>' : '') + '<span>' + escapeHtml(message) + '</span>';
+      el.resultsTable.hidden = true;
+    }
+
+    function hideStatus() {
+      el.statusMsg.hidden = true;
+    }
+
+    // ---- Carga de datos ----
+    function loadPanel() {
+      el.refreshBtn.disabled = true;
+      showStatus('loading', 'Analizando la flota\u2026');
+      el.summaryBar.hidden = true;
+
+      api.call('Get', { typeName: 'Device', resultsLimit: 300 }, function (devices) {
+        fetchSignals(devices || []);
+      }, function (err) {
+        el.refreshBtn.disabled = false;
+        console.error('Error obteniendo activos', err);
+        showStatus('error', 'No se pudo obtener la lista de activos. Inténtalo de nuevo.');
+      });
+    }
+
+    function fetchSignals(devices) {
+      var now = new Date();
+      var freshFrom = new Date(now.getTime() - CONFIG.lookbackDaysFreshness * 86400000);
+      var equippedFrom = new Date(now.getTime() - CONFIG.lookbackDaysEquipped * 86400000);
+      var fields = { fields: ['device', 'dateTime'] };
+
+      var calls = [];
+      // 0: LogRecord -> comunicación del GO
+      calls.push(['Get', {
+        typeName: 'LogRecord',
+        search: { fromDate: freshFrom.toISOString(), toDate: now.toISOString() },
+        resultsLimit: 15000,
+        propertySelector: fields
+      }]);
+      // 1..5: termógrafo/sondas
+      CARGO_DIAGNOSTICS.forEach(function (d) {
+        calls.push(['Get', {
+          typeName: 'StatusData',
+          search: { diagnosticSearch: { id: d.id }, fromDate: freshFrom.toISOString(), toDate: now.toISOString() },
+          resultsLimit: 15000,
+          propertySelector: fields
+        }]);
+      });
+      // 6..8: IOX Cold (frescura)
+      IOX_DIAGNOSTICS.forEach(function (d) {
+        calls.push(['Get', {
+          typeName: 'StatusData',
+          search: { diagnosticSearch: { id: d.id }, fromDate: freshFrom.toISOString(), toDate: now.toISOString() },
+          resultsLimit: 15000,
+          propertySelector: fields
+        }]);
+      });
+      // 9: IOX Cold (¿equipado?, ventana larga)
+      calls.push(['Get', {
+        typeName: 'StatusData',
+        search: { diagnosticSearch: { id: IOX_EQUIPPED_DIAGNOSTIC_ID }, fromDate: equippedFrom.toISOString(), toDate: now.toISOString() },
+        resultsLimit: 20000,
+        propertySelector: { fields: ['device'] }
+      }]);
+      // 10..14: máquina de frío (frescura)
+      MACHINE_DIAGNOSTICS.forEach(function (d) {
+        calls.push(['Get', {
+          typeName: 'StatusData',
+          search: { diagnosticSearch: { id: d.id }, fromDate: freshFrom.toISOString(), toDate: now.toISOString() },
+          resultsLimit: 15000,
+          propertySelector: fields
+        }]);
+      });
+      // 15: máquina de frío (¿equipado?, ventana larga)
+      calls.push(['Get', {
+        typeName: 'StatusData',
+        search: { diagnosticSearch: { id: MACHINE_EQUIPPED_DIAGNOSTIC_ID }, fromDate: equippedFrom.toISOString(), toDate: now.toISOString() },
+        resultsLimit: 20000,
+        propertySelector: { fields: ['device'] }
+      }]);
+      // 16: Trip -> última actividad de viaje (informativo)
+      calls.push(['Get', {
+        typeName: 'Trip',
+        search: { fromDate: freshFrom.toISOString(), toDate: now.toISOString() },
+        resultsLimit: 15000,
+        propertySelector: { fields: ['device', 'stop'] }
+      }]);
+
+      api.multiCall(calls, function (results) {
+        el.refreshBtn.disabled = false;
+        processResults(devices, results || [], now);
+      }, function (err) {
+        el.refreshBtn.disabled = false;
+        console.error('Error consultando señales de la flota', err);
+        showStatus('error', 'No se pudieron consultar los datos de la flota. Inténtalo de nuevo.');
+      });
+    }
+
+    function maxByDevice(records, dateField, into) {
+      var map = into || {};
+      (records || []).forEach(function (r) {
+        if (!r || !r.device || !r.device.id || !r[dateField]) return;
+        var t = new Date(r[dateField]).getTime();
+        if (!map[r.device.id] || t > map[r.device.id]) map[r.device.id] = t;
+      });
+      return map;
+    }
+
+    function toIdSet(records) {
+      var set = {};
+      (records || []).forEach(function (r) { if (r && r.device && r.device.id) set[r.device.id] = true; });
+      return set;
+    }
+
+    function processResults(devices, results, now) {
+      var idx = 0;
+      var logRecords = results[idx++] || [];
+      var cargoArrays = CARGO_DIAGNOSTICS.map(function () { return results[idx++] || []; });
+      var ioxArrays = IOX_DIAGNOSTICS.map(function () { return results[idx++] || []; });
+      var ioxEquippedRecords = results[idx++] || [];
+      var machineArrays = MACHINE_DIAGNOSTICS.map(function () { return results[idx++] || []; });
+      var machineEquippedRecords = results[idx++] || [];
+      var tripRecords = results[idx++] || [];
+
+      var goLastSeen = maxByDevice(logRecords, 'dateTime');
+      var cargoLastSeen = {};
+      cargoArrays.forEach(function (arr) { maxByDevice(arr, 'dateTime', cargoLastSeen); });
+      var ioxLastSeen = {};
+      ioxArrays.forEach(function (arr) { maxByDevice(arr, 'dateTime', ioxLastSeen); });
+      var ioxEquippedSet = toIdSet(ioxEquippedRecords);
+      var machineLastSeen = {};
+      machineArrays.forEach(function (arr) { maxByDevice(arr, 'dateTime', machineLastSeen); });
+      var machineEquippedSet = toIdSet(machineEquippedRecords);
+      var tripLastSeen = maxByDevice(tripRecords, 'stop');
+
+      var relevant = devices.filter(function (dev) {
+        return !!cargoLastSeen[dev.id] || !!machineEquippedSet[dev.id] || !!ioxEquippedSet[dev.id];
+      });
+
+      allRows = relevant.map(function (dev) {
+        var goTime = goLastSeen[dev.id] || null;
+        var cargoTime = cargoLastSeen[dev.id] || null;
+        var ioxEquipped = !!ioxEquippedSet[dev.id];
+        var ioxTime = ioxLastSeen[dev.id] || null;
+        var machineEquipped = !!machineEquippedSet[dev.id];
+        var machineTime = machineLastSeen[dev.id] || null;
+        var tripTime = tripLastSeen[dev.id] || null;
+        var status = computeStatus(goTime, ioxEquipped, ioxTime, cargoTime, machineEquipped, machineTime, now);
+        return {
+          device: dev, status: status,
+          goTime: goTime, cargoTime: cargoTime,
+          ioxEquipped: ioxEquipped, ioxTime: ioxTime,
+          machineEquipped: machineEquipped, machineTime: machineTime,
+          tripTime: tripTime
+        };
+      });
+
+      allRows.sort(function (a, b) {
+        var order = { go: 0, iox: 1, cargo: 2, machine: 3, ok: 4 };
+        if (order[a.status.level] !== order[b.status.level]) return order[a.status.level] - order[b.status.level];
+        return a.device.name.localeCompare(b.device.name);
+      });
+
+      hideStatus();
+      renderSummary(allRows);
+      renderTable(allRows, now);
+      el.updatedAt.textContent = 'Actualizado ' + formatDateTimeEs(now.getTime());
+
+      if (relevant.length === 0) {
+        showStatus(null, '');
+        el.statusMsg.hidden = false;
+        el.statusMsg.className = 'status-msg';
+        el.statusMsg.innerHTML = '<span>No se ha detectado ningún activo con datos de termógrafo, sondas, IOX Cold o máquina de frío en los últimos ' + CONFIG.lookbackDaysEquipped + ' días.</span>';
+      }
+    }
+
+    // Prioridad: GO -> IOX (solo si consta histórico de IOX Cold) -> termógrafo/sondas -> máquina (solo si equipada).
+    // Un asset con IOX Ureader en vez de IOX Cold no tiene histórico de IOX aquí, así que
+    // cae directo a la comprobación de termógrafo/sondas sin falsos positivos de "IOX no detectado".
+    function computeStatus(goTime, ioxEquipped, ioxTime, cargoTime, machineEquipped, machineTime, now) {
+      if (!isFresh(goTime, CONFIG.thresholdHoursGo, now)) {
+        return { level: 'go', label: 'GO no comunica' };
+      }
+      if (ioxEquipped && !isFresh(ioxTime, CONFIG.thresholdHoursCargo, now)) {
+        return { level: 'iox', label: 'IOX Cold no detectado' };
+      }
+      if (!isFresh(cargoTime, CONFIG.thresholdHoursCargo, now)) {
+        return { level: 'cargo', label: 'Sin termógrafo/sondas' };
+      }
+      if (machineEquipped && !isFresh(machineTime, CONFIG.thresholdHoursMachine, now)) {
+        return { level: 'machine', label: 'Máquina de frío sin datos' };
+      }
+      return { level: 'ok', label: 'OK' };
+    }
+
+    function renderSummary(rows) {
+      var counts = { ok: 0, go: 0, iox: 0, cargo: 0, machine: 0 };
+      rows.forEach(function (r) { counts[r.status.level]++; });
+      el.sumOk.textContent = counts.ok;
+      el.sumGo.textContent = counts.go;
+      el.sumIox.textContent = counts.iox;
+      el.sumCargo.textContent = counts.cargo;
+      el.sumMachine.textContent = counts.machine;
+      el.summaryBar.hidden = false;
+    }
+
+    function cellTime(ms, now, thresholdHours) {
+      if (!ms) return '<span class="cell-na">&mdash;</span>';
+      var h = hoursAgo(ms, now);
+      var text = h < 1 ? Math.round(h * 60) + ' min' : Math.round(h) + ' h';
+      return '<span class="cell-muted" title="' + formatDateTimeEs(ms) + '">hace ' + text + '</span>';
+    }
+
+    function renderTable(rows, now) {
+      var onlyProblems = el.onlyProblemsToggle.checked;
+      var visible = onlyProblems ? rows.filter(function (r) { return r.status.level !== 'ok'; }) : rows;
+
+      if (visible.length === 0) {
+        el.resultsTable.hidden = true;
+        showStatus(null, '');
+        el.statusMsg.hidden = false;
+        el.statusMsg.className = 'status-msg';
+        el.statusMsg.innerHTML = '<span>Ningún activo con problemas ahora mismo.</span>';
+        return;
+      }
+      hideStatus();
+
+      var thead = '<thead><tr>' +
+        '<th>Activo</th><th>Estado</th><th>GO</th><th>IOX Cold</th><th>Termógrafo/Sondas</th><th>Máquina de frío</th><th>Último viaje</th>' +
+        '</tr></thead>';
+
+      var tbody = '<tbody>' + visible.map(function (r) {
+        var ioxCell = r.ioxEquipped
+          ? cellTime(r.ioxTime, now, CONFIG.thresholdHoursCargo)
+          : '<span class="cell-na">Sin histórico IOX Cold</span>';
+        var machineCell = r.machineEquipped
+          ? cellTime(r.machineTime, now, CONFIG.thresholdHoursMachine)
+          : '<span class="cell-na">Sin máquina conectada</span>';
+        return '<tr>' +
+          '<td class="device-name">' + escapeHtml(r.device.name) + '</td>' +
+          '<td><span class="badge ' + r.status.level + '">' + r.status.label + '</span></td>' +
+          '<td>' + cellTime(r.goTime, now, CONFIG.thresholdHoursGo) + '</td>' +
+          '<td>' + ioxCell + '</td>' +
+          '<td>' + cellTime(r.cargoTime, now, CONFIG.thresholdHoursCargo) + '</td>' +
+          '<td>' + machineCell + '</td>' +
+          '<td>' + cellTime(r.tripTime, now, 999999) + '</td>' +
+          '</tr>';
+      }).join('') + '</tbody>';
+
+      el.resultsTable.innerHTML = thead + tbody;
+      el.resultsTable.hidden = false;
+    }
+
+    function wireEvents() {
+      el.refreshBtn.addEventListener('click', loadPanel);
+      el.onlyProblemsToggle.addEventListener('change', function () { renderTable(allRows, new Date()); });
+    }
+
+    function startAutoRefresh() {
+      if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+      autoRefreshTimer = setInterval(loadPanel, CONFIG.autoRefreshMinutes * 60000);
+    }
+
+    return {
+      initialize: function (freshApi, freshState, callback) {
+        api = freshApi;
+        cacheElements();
+        wireEvents();
+        loadPanel();
+        startAutoRefresh();
+        if (typeof callback === 'function') callback();
+      },
+      focus: function (freshApi, freshState) {
+        api = freshApi;
+        loadPanel();
+      },
+      blur: function () {
+        if (autoRefreshTimer) { clearInterval(autoRefreshTimer); autoRefreshTimer = null; }
+      }
+    };
+  };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "Monitor de Frigoríficos",
+  "supportEmail": "soporte@tecnoflotas.com",
+  "version": "1.0.0",
+  "items": [
+    {
+      "url": "https://josetecnycom-ai.github.io/reporte-km-geotab/index.html",
+      "path": "ActivityLink/",
+      "menuName": {
+        "en": "Cold Chain Health Monitor",
+        "es": "Monitor de Frigoríficos"
+      },
+      "icon": "icon.svg"
+    }
+  ],
+  "isSigned": false
+}
