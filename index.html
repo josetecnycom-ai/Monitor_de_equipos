@@ -369,7 +369,7 @@
       calls.push(['Get', {
         typeName: 'DeviceStatusInfo',
         search: { deviceSearch: devSearch },
-        propertySelector: { fields: ['device', 'isDeviceCommunicating', 'dateTime', 'lastCommunicatedUtc'] }
+        propertySelector: { fields: ['device', 'isDeviceCommunicating', 'dateTime'] }
       }]);
       
       // 1-6: termógrafo/sondas (frescura)
@@ -435,7 +435,8 @@
       }, function (err) {
         el.refreshBtn.disabled = false;
         console.error('Error consultando señales de la flota', err);
-        showStatus('error', 'No se pudieron consultar los datos de la flota. Inténtalo de nuevo.');
+        var msg = err ? (err.message || JSON.stringify(err)) : 'Error desconocido';
+        showStatus('error', 'Error API: ' + msg);
       });
     }
 
