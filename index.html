@@ -106,7 +106,7 @@
     </header>
 
     <div class="warning-banner" id="truncationWarning" hidden>
-      ⚠️ La consulta de comunicación del GO ha devuelto el máximo de registros permitido — puede que falten activos muy activos y la columna "GO" no sea fiable en esta actualización. Avísame para ajustar la consulta.
+      ⚠️ Al menos un activo ha superado el máximo de registros de GPS consultados en 24h — su columna "GO" podría no reflejar el dato más reciente. Avísame si ves alguno sospechoso.
     </div>
 
     <div class="summary" id="summaryBar" hidden>
@@ -142,7 +142,8 @@
     thresholdHoursCargo: 12,
     thresholdHoursMachine: 12,
     lookbackHoursGo: 24,
-    logRecordResultsLimit: 50000,
+    logRecordResultsLimitPerDevice: 3000,
+    goChunkSize: 40,
     lookbackDaysFreshness: 14,
     lookbackDaysEquipped: 45,
     autoRefreshMinutes: 5
@@ -265,21 +266,11 @@
 
     function fetchSignals(devices) {
       var now = new Date();
-      var goFrom = new Date(now.getTime() - CONFIG.lookbackHoursGo * 3600000);
       var freshFrom = new Date(now.getTime() - CONFIG.lookbackDaysFreshness * 86400000);
       var equippedFrom = new Date(now.getTime() - CONFIG.lookbackDaysEquipped * 86400000);
       var fields = { fields: ['device', 'dateTime', 'data'] };
 
       var calls = [];
-      // LogRecord -> comunicación del GO. Ventana corta y propia: un GPS activo genera
-      // muchísimos más registros que los diagnósticos de temperatura, así que usa un
-      // resultsLimit alto y una ventana ajustada al umbral (no los 14 días compartidos).
-      calls.push(['Get', {
-        typeName: 'LogRecord',
-        search: { fromDate: goFrom.toISOString(), toDate: now.toISOString() },
-        resultsLimit: CONFIG.logRecordResultsLimit,
-        propertySelector: { fields: ['device', 'dateTime'] }
-      }]);
       // termógrafo/sondas (frescura + valor, para detectar ThermographStatusId=Error)
       CARGO_DIAGNOSTICS.forEach(function (d) {
         calls.push(['Get', {
@@ -323,7 +314,7 @@
         resultsLimit: 20000,
         propertySelector: { fields: ['device'] }
       }]);
-      // 16: Trip -> última actividad de viaje (informativo)
+      // Trip -> última actividad de viaje (informativo)
       calls.push(['Get', {
         typeName: 'Trip',
         search: { fromDate: freshFrom.toISOString(), toDate: now.toISOString() },
@@ -332,8 +323,7 @@
       }]);
 
       api.multiCall(calls, function (results) {
-        el.refreshBtn.disabled = false;
-        processResults(devices, results || [], now);
+        processNonGoResults(devices, results || [], now);
       }, function (err) {
         el.refreshBtn.disabled = false;
         console.error('Error consultando señales de la flota', err);
@@ -373,10 +363,14 @@
       return i === -1 ? [] : arrays[i];
     }
 
-    function processResults(devices, results, now) {
+    function chunkArray(arr, size) {
+      var chunks = [];
+      for (var i = 0; i < arr.length; i += size) chunks.push(arr.slice(i, i + size));
+      return chunks;
+    }
+
+    function processNonGoResults(devices, results, now) {
       var idx = 0;
-      var logRecords = results[idx++] || [];
-      el.truncationWarning.hidden = logRecords.length < CONFIG.logRecordResultsLimit;
       var cargoArrays = CARGO_DIAGNOSTICS.map(function () { return results[idx++] || []; });
       var ioxArrays = IOX_DIAGNOSTICS.map(function () { return results[idx++] || []; });
       var ioxEquippedRecords = IOX_EQUIPPED_DIAGNOSTIC_IDS.map(function () { return results[idx++] || []; });
@@ -384,13 +378,12 @@
       var machineEquippedRecords = results[idx++] || [];
       var tripRecords = results[idx++] || [];
 
-      var goLastSeen = maxByDevice(logRecords, 'dateTime');
       var cargoLastSeen = {};
       cargoArrays.forEach(function (arr) { maxByDevice(arr, 'dateTime', cargoLastSeen); });
       var ioxLastSeen = {};
       ioxArrays.forEach(function (arr) { maxByDevice(arr, 'dateTime', ioxLastSeen); });
       var ioxEquippedSet = {};
-      ioxEquippedRecords.forEach(function (arr) { Object.assign ? Object.assign(ioxEquippedSet, toIdSet(arr)) : (function () { var s = toIdSet(arr); for (var k in s) ioxEquippedSet[k] = true; })(); });
+      ioxEquippedRecords.forEach(function (arr) { var s = toIdSet(arr); for (var k in s) ioxEquippedSet[k] = true; });
       var machineLastSeen = {};
       machineArrays.forEach(function (arr) { maxByDevice(arr, 'dateTime', machineLastSeen); });
       var machineEquippedSet = toIdSet(machineEquippedRecords);
@@ -408,43 +401,95 @@
         return !!cargoLastSeen[dev.id] || !!machineEquippedSet[dev.id] || !!ioxEquippedSet[dev.id];
       });
 
-      allRows = relevant.map(function (dev) {
-        var goTime = goLastSeen[dev.id] || null;
-        var cargoTime = cargoLastSeen[dev.id] || null;
-        var ioxEquipped = !!ioxEquippedSet[dev.id];
-        var ioxTime = ioxLastSeen[dev.id] || null;
-        var ioxExplicitDisconnected = !!(ioxConnectionLatest[dev.id] && ioxConnectionLatest[dev.id].data === IOX_DISCONNECTED_VALUE);
-        var thermoExplicitError = !!(thermoStatusLatest[dev.id] && thermoStatusLatest[dev.id].data === THERMOGRAPH_STATUS_ERROR_VALUE);
-        var machineEquipped = !!machineEquippedSet[dev.id];
-        var machineTime = machineLastSeen[dev.id] || null;
-        var tripTime = tripLastSeen[dev.id] || null;
-        var status = computeStatus(goTime, ioxEquipped, ioxTime, ioxExplicitDisconnected, cargoTime, thermoExplicitError, machineEquipped, machineTime, now);
+      var partialRows = relevant.map(function (dev) {
         return {
-          device: dev, status: status,
-          goTime: goTime, cargoTime: cargoTime,
-          ioxEquipped: ioxEquipped, ioxTime: ioxTime,
-          machineEquipped: machineEquipped, machineTime: machineTime,
-          tripTime: tripTime
+          device: dev,
+          cargoTime: cargoLastSeen[dev.id] || null,
+          ioxEquipped: !!ioxEquippedSet[dev.id],
+          ioxTime: ioxLastSeen[dev.id] || null,
+          ioxExplicitDisconnected: !!(ioxConnectionLatest[dev.id] && ioxConnectionLatest[dev.id].data === IOX_DISCONNECTED_VALUE),
+          thermoExplicitError: !!(thermoStatusLatest[dev.id] && thermoStatusLatest[dev.id].data === THERMOGRAPH_STATUS_ERROR_VALUE),
+          machineEquipped: !!machineEquippedSet[dev.id],
+          machineTime: machineLastSeen[dev.id] || null,
+          tripTime: tripLastSeen[dev.id] || null
         };
       });
 
-      allRows.sort(function (a, b) {
-        var order = { go: 0, iox: 1, cargo: 2, machine: 3, ok: 4 };
-        if (order[a.status.level] !== order[b.status.level]) return order[a.status.level] - order[b.status.level];
-        return a.device.name.localeCompare(b.device.name);
-      });
-
-      hideStatus();
-      renderSummary(allRows);
-      renderTable(allRows, now);
-      el.updatedAt.textContent = 'Actualizado ' + formatDateTimeEs(now.getTime());
-
       if (relevant.length === 0) {
-        showStatus(null, '');
+        el.refreshBtn.disabled = false;
+        el.truncationWarning.hidden = true;
         el.statusMsg.hidden = false;
         el.statusMsg.className = 'status-msg';
         el.statusMsg.innerHTML = '<span>No se ha detectado ningún activo con datos de termógrafo, sondas, IOX o máquina de frío en los últimos ' + CONFIG.lookbackDaysEquipped + ' días.</span>';
+        allRows = [];
+        renderSummary(allRows);
+        return;
       }
+
+      // El estado del GO se consulta por activo (no para toda la flota a la vez): un GPS
+      // activo genera muchos más registros que un diagnóstico de temperatura, así que una
+      // consulta conjunta se trunca con flotas grandes. Por activo, el volumen queda acotado
+      // pase lo que pase, así que no hay riesgo de truncado ni falsos "GO no comunica".
+      fetchGoStatusChunked(partialRows, now, function (goLastSeen, anyChunkTruncated) {
+        el.refreshBtn.disabled = false;
+        el.truncationWarning.hidden = !anyChunkTruncated;
+        allRows = partialRows.map(function (row) {
+          row.goTime = goLastSeen[row.device.id] || null;
+          row.status = computeStatus(row.goTime, row.ioxEquipped, row.ioxTime, row.ioxExplicitDisconnected, row.cargoTime, row.thermoExplicitError, row.machineEquipped, row.machineTime, now);
+          return row;
+        });
+        allRows.sort(function (a, b) {
+          var order = { go: 0, iox: 1, cargo: 2, machine: 3, ok: 4 };
+          if (order[a.status.level] !== order[b.status.level]) return order[a.status.level] - order[b.status.level];
+          return a.device.name.localeCompare(b.device.name);
+        });
+        hideStatus();
+        renderSummary(allRows);
+        renderTable(allRows, now);
+        el.updatedAt.textContent = 'Actualizado ' + formatDateTimeEs(now.getTime());
+      });
+    }
+
+    function fetchGoStatusChunked(partialRows, now, callback) {
+      var goFrom = new Date(now.getTime() - CONFIG.lookbackHoursGo * 3600000);
+      var chunks = chunkArray(partialRows, CONFIG.goChunkSize);
+      var goLastSeen = {};
+      var anyTruncated = false;
+      var chunkIndex = 0;
+
+      function next() {
+        if (chunkIndex >= chunks.length) { callback(goLastSeen, anyTruncated); return; }
+        var chunk = chunks[chunkIndex];
+        var calls = chunk.map(function (row) {
+          return ['Get', {
+            typeName: 'LogRecord',
+            search: { deviceSearch: { id: row.device.id }, fromDate: goFrom.toISOString(), toDate: now.toISOString() },
+            resultsLimit: CONFIG.logRecordResultsLimitPerDevice,
+            propertySelector: { fields: ['dateTime'] }
+          }];
+        });
+        api.multiCall(calls, function (results) {
+          chunk.forEach(function (row, i) {
+            var recs = results[i] || [];
+            if (recs.length >= CONFIG.logRecordResultsLimitPerDevice) anyTruncated = true;
+            var maxT = null;
+            recs.forEach(function (r) {
+              if (!r || !r.dateTime) return;
+              var t = new Date(r.dateTime).getTime();
+              if (!maxT || t > maxT) maxT = t;
+            });
+            if (maxT) goLastSeen[row.device.id] = maxT;
+          });
+          chunkIndex++;
+          showStatus('loading', 'Comprobando comunicación del GO\u2026 (' + chunkIndex + '/' + chunks.length + ')');
+          next();
+        }, function (err) {
+          console.error('Error consultando GO por lotes', err);
+          chunkIndex++;
+          next();
+        });
+      }
+      next();
     }
 
     // Prioridad: GO -> IOX (equipado, o desconexión explícita) -> termógrafo/sondas (o error
