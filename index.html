@@ -4,8 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Monitor de Frigoríficos</title>
+</head>
+<body>
+
+<!-- Mover los estilos al body para que Geotab no los borre al inyectar el Add-in -->
 <style>
-  :root {
+  .cold-chain-app {
     --color-bg: #F4F8FB;
     --color-surface: #FFFFFF;
     --color-primary: #0F2A47;
@@ -19,78 +23,84 @@
     --color-iox-bg: #FDEAE0; --color-iox-fg: #B4460A; --color-iox-bar: #EA580C;
     --color-cargo-bg: #FDF3E3; --color-cargo-fg: #92590A; --color-cargo-bar: #CA8A04;
     --color-machine-bg: #EEEDFC; --color-machine-fg: #4338CA; --color-machine-bar: #6366F1;
-    --color-na-bg: #EEF2F5; --color-na-fg: #64748B; --color-na-bar: #94A3B8;
     --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+    font-family: var(--font-ui);
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-size: 14px;
+    line-height: 1.5;
+    max-width: 1380px;
+    margin: 0 auto;
+    padding: 20px 20px 60px;
+    box-sizing: border-box;
   }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  body { font-family: var(--font-ui); background: var(--color-bg); color: var(--color-text); font-size: 14px; line-height: 1.5; }
-  .app { max-width: 1380px; margin: 0 auto; padding: 20px 20px 60px; }
 
-  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
-  .topbar-left { display: flex; align-items: center; gap: 14px; }
-  .topbar h1 { font-size: 20px; margin: 0; color: var(--color-primary); font-weight: 700; }
-  .subtitle { margin: 2px 0 0; color: var(--color-text-muted); font-size: 13px; }
+  .cold-chain-app * { box-sizing: border-box; }
 
-  .btn { font: inherit; font-weight: 600; border-radius: 7px; padding: 9px 16px; cursor: pointer; border: 1px solid transparent; }
-  .btn-primary { background: var(--color-primary); color: #fff; }
-  .btn-primary:hover { background: var(--color-primary-hover); }
-  .btn-primary:disabled { opacity: .6; cursor: default; }
-  .btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  .cold-chain-app .topbar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
+  .cold-chain-app .topbar-left { display: flex; align-items: center; gap: 14px; }
+  .cold-chain-app h1 { font-size: 20px; margin: 0; color: var(--color-primary); font-weight: 700; line-height: 1.2; }
+  .cold-chain-app .subtitle { margin: 2px 0 0; color: var(--color-text-muted); font-size: 13px; }
 
-  .form-select { font: inherit; padding: 8px 12px; border-radius: 7px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); cursor: pointer; min-width: 200px; }
-  .form-select:focus { outline: 2px solid var(--color-accent); outline-offset: -1px; border-color: transparent; }
+  .cold-chain-app .btn { font: inherit; font-weight: 600; border-radius: 7px; padding: 9px 16px; cursor: pointer; border: 1px solid transparent; }
+  .cold-chain-app .btn-primary { background: var(--color-primary); color: #fff; }
+  .cold-chain-app .btn-primary:hover { background: var(--color-primary-hover); }
+  .cold-chain-app .btn-primary:disabled { opacity: .6; cursor: default; }
+  .cold-chain-app .btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
-  .summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
-  .summary-card { flex: 1; min-width: 130px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 12px 14px; border-top: 3px solid var(--color-border); }
-  .summary-card .num { font-size: 22px; font-weight: 700; color: var(--color-text); font-family: var(--font-mono); }
-  .summary-card .lbl { font-size: 12px; color: var(--color-text-muted); }
-  .summary-card.ok { border-top-color: var(--color-ok-bar); }
-  .summary-card.go { border-top-color: var(--color-go-bar); }
-  .summary-card.iox { border-top-color: var(--color-iox-bar); }
-  .summary-card.cargo { border-top-color: var(--color-cargo-bar); }
-  .summary-card.machine { border-top-color: var(--color-machine-bar); }
+  .cold-chain-app .form-select { font: inherit; padding: 8px 12px; border-radius: 7px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); cursor: pointer; min-width: 200px; }
+  .cold-chain-app .form-select:focus { outline: 2px solid var(--color-accent); outline-offset: -1px; border-color: transparent; }
 
-  .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 10px; flex-wrap: wrap; background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border); }
-  .toolbar-left { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
-  .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--color-text-muted); user-select: none; cursor: pointer; }
-  .toggle input { cursor: pointer; }
-  .updated-at { font-size: 12px; color: var(--color-text-muted); }
+  .cold-chain-app .summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .cold-chain-app .summary-card { flex: 1; min-width: 130px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 12px 14px; border-top: 3px solid var(--color-border); }
+  .cold-chain-app .summary-card .num { font-size: 22px; font-weight: 700; color: var(--color-text); font-family: var(--font-mono); }
+  .cold-chain-app .summary-card .lbl { font-size: 12px; color: var(--color-text-muted); }
+  .cold-chain-app .summary-card.ok { border-top-color: var(--color-ok-bar); }
+  .cold-chain-app .summary-card.go { border-top-color: var(--color-go-bar); }
+  .cold-chain-app .summary-card.iox { border-top-color: var(--color-iox-bar); }
+  .cold-chain-app .summary-card.cargo { border-top-color: var(--color-cargo-bar); }
+  .cold-chain-app .summary-card.machine { border-top-color: var(--color-machine-bar); }
 
-  .panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0; overflow: hidden; }
-  .status-msg { padding: 18px 20px; display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); }
-  .status-msg.error { color: var(--color-go-fg); background: var(--color-go-bg); }
-  .spinner { width: 16px; height: 16px; border-radius: 50%; flex: none; border: 2px solid var(--color-border); border-top-color: var(--color-accent); animation: spin .7s linear infinite; }
+  .cold-chain-app .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-bottom: 10px; flex-wrap: wrap; background: var(--color-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--color-border); }
+  .cold-chain-app .toolbar-left { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
+  .cold-chain-app .toggle { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--color-text-muted); user-select: none; cursor: pointer; margin: 0; }
+  .cold-chain-app .toggle input { cursor: pointer; margin: 0; }
+  .cold-chain-app .updated-at { font-size: 12px; color: var(--color-text-muted); }
+
+  .cold-chain-app .panel { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 0; overflow: hidden; }
+  .cold-chain-app .status-msg { padding: 18px 20px; display: flex; align-items: center; gap: 10px; color: var(--color-text-muted); }
+  .cold-chain-app .status-msg.error { color: var(--color-go-fg); background: var(--color-go-bg); }
+  .cold-chain-app .spinner { width: 16px; height: 16px; border-radius: 50%; flex: none; border: 2px solid var(--color-border); border-top-color: var(--color-accent); animation: spin .7s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  .table-scroll { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; font-size: 13px; }
-  th, td { padding: 9px 14px; border-bottom: 1px solid var(--color-border); text-align: left; white-space: nowrap; }
-  th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--color-text-muted); background: #FAFCFE; position: sticky; top: 0; z-index: 10; }
-  tbody tr:hover { background: #FAFCFE; }
-  .device-name { font-weight: 600; }
-  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-  .badge.ok { background: var(--color-ok-bg); color: var(--color-ok-fg); }
-  .badge.go { background: var(--color-go-bg); color: var(--color-go-fg); }
-  .badge.iox { background: var(--color-iox-bg); color: var(--color-iox-fg); }
-  .badge.cargo { background: var(--color-cargo-bg); color: var(--color-cargo-fg); }
-  .badge.machine { background: var(--color-machine-bg); color: var(--color-machine-fg); }
-  .cell-muted { color: var(--color-text-muted); font-size: 12px; }
-  .cell-val { font-family: var(--font-mono); font-weight: 600; }
-  .cell-na { color: #B8C4CF; font-style: italic; font-size: 12px; }
-  .empty-cell { text-align: center; padding: 40px 20px; color: var(--color-text-muted); }
-  .temp-val { display: inline-block; min-width: 45px; }
+  .cold-chain-app .table-scroll { overflow-x: auto; }
+  .cold-chain-app table { border-collapse: collapse; width: 100%; font-size: 13px; margin: 0; }
+  .cold-chain-app th, .cold-chain-app td { padding: 9px 14px; border-bottom: 1px solid var(--color-border); text-align: left; white-space: nowrap; }
+  .cold-chain-app th { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: var(--color-text-muted); background: #FAFCFE; position: sticky; top: 0; z-index: 10; font-weight: 600; }
+  .cold-chain-app tbody tr:hover { background: #FAFCFE; }
+  .cold-chain-app .device-name { font-weight: 600; }
+  .cold-chain-app .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .cold-chain-app .badge.ok { background: var(--color-ok-bg); color: var(--color-ok-fg); }
+  .cold-chain-app .badge.go { background: var(--color-go-bg); color: var(--color-go-fg); }
+  .cold-chain-app .badge.iox { background: var(--color-iox-bg); color: var(--color-iox-fg); }
+  .cold-chain-app .badge.cargo { background: var(--color-cargo-bg); color: var(--color-cargo-fg); }
+  .cold-chain-app .badge.machine { background: var(--color-machine-bg); color: var(--color-machine-fg); }
+  .cold-chain-app .cell-muted { color: var(--color-text-muted); font-size: 12px; }
+  .cold-chain-app .cell-val { font-family: var(--font-mono); font-weight: 600; }
+  .cold-chain-app .cell-na { color: #B8C4CF; font-style: italic; font-size: 12px; }
+  .cold-chain-app .empty-cell { text-align: center; padding: 40px 20px; color: var(--color-text-muted); }
+  .cold-chain-app .temp-val { display: inline-block; min-width: 45px; }
 
   @media (max-width: 720px) {
-    .app { padding: 14px; }
-    .summary { flex-direction: column; }
-    .toolbar { flex-direction: column; align-items: flex-start; }
+    .cold-chain-app { padding: 14px; }
+    .cold-chain-app .summary { flex-direction: column; }
+    .cold-chain-app .toolbar { flex-direction: column; align-items: flex-start; }
   }
 </style>
-</head>
-<body>
-  <div class="app">
+
+  <div class="cold-chain-app">
     <header class="topbar">
       <div class="topbar-left">
         <svg width="36" height="36" viewBox="0 0 32 32" aria-hidden="true">
@@ -333,8 +343,11 @@
 
       // Obtenemos dispositivos para filtrar a los que pertenecen directamente al grupo
       api.call('Get', { typeName: 'Device', search: { groups: [{ id: groupId }] } }, function (devices) {
+        var nowTime = new Date().getTime();
         var directDevices = devices.filter(function(d) {
-          return d.groups && d.groups.some(function(g) { return g.id === groupId; });
+          var inGroup = d.groups && d.groups.some(function(g) { return g.id === groupId; });
+          var isActive = !d.activeTo || (new Date(d.activeTo).getTime() > nowTime);
+          return inGroup && isActive;
         });
         
         if (directDevices.length === 0) {
