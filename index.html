@@ -39,6 +39,8 @@
   .btn-primary:disabled { opacity: .6; cursor: default; }
   .btn:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 
+  .warning-banner { background: var(--color-iox-bg); color: var(--color-iox-fg); border: 1px solid var(--color-iox-bar); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 13px; font-weight: 600; }
+
   .summary { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
   .summary-card { flex: 1; min-width: 130px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 10px; padding: 12px 14px; border-top: 3px solid var(--color-border); }
   .summary-card .num { font-size: 22px; font-weight: 700; color: var(--color-text); font-family: var(--font-mono); }
@@ -103,6 +105,10 @@
       <button type="button" id="refreshBtn" class="btn btn-primary">Actualizar</button>
     </header>
 
+    <div class="warning-banner" id="truncationWarning" hidden>
+      ⚠️ La consulta de comunicación del GO ha devuelto el máximo de registros permitido — puede que falten activos muy activos y la columna "GO" no sea fiable en esta actualización. Avísame para ajustar la consulta.
+    </div>
+
     <div class="summary" id="summaryBar" hidden>
       <div class="summary-card ok"><div class="num" id="sumOk">0</div><div class="lbl">OK</div></div>
       <div class="summary-card go"><div class="num" id="sumGo">0</div><div class="lbl">GO sin comunicar</div></div>
@@ -135,6 +141,8 @@
     thresholdHoursGo: 6,
     thresholdHoursCargo: 12,
     thresholdHoursMachine: 12,
+    lookbackHoursGo: 24,
+    logRecordResultsLimit: 50000,
     lookbackDaysFreshness: 14,
     lookbackDaysEquipped: 45,
     autoRefreshMinutes: 5
@@ -191,6 +199,7 @@
 
     function cacheElements() {
       el.refreshBtn = $('refreshBtn');
+      el.truncationWarning = $('truncationWarning');
       el.summaryBar = $('summaryBar');
       el.sumOk = $('sumOk');
       el.sumGo = $('sumGo');
@@ -241,6 +250,7 @@
     // ---- Carga de datos ----
     function loadPanel() {
       el.refreshBtn.disabled = true;
+      el.truncationWarning.hidden = true;
       showStatus('loading', 'Analizando la flota\u2026');
       el.summaryBar.hidden = true;
 
@@ -255,16 +265,19 @@
 
     function fetchSignals(devices) {
       var now = new Date();
+      var goFrom = new Date(now.getTime() - CONFIG.lookbackHoursGo * 3600000);
       var freshFrom = new Date(now.getTime() - CONFIG.lookbackDaysFreshness * 86400000);
       var equippedFrom = new Date(now.getTime() - CONFIG.lookbackDaysEquipped * 86400000);
       var fields = { fields: ['device', 'dateTime', 'data'] };
 
       var calls = [];
-      // LogRecord -> comunicación del GO
+      // LogRecord -> comunicación del GO. Ventana corta y propia: un GPS activo genera
+      // muchísimos más registros que los diagnósticos de temperatura, así que usa un
+      // resultsLimit alto y una ventana ajustada al umbral (no los 14 días compartidos).
       calls.push(['Get', {
         typeName: 'LogRecord',
-        search: { fromDate: freshFrom.toISOString(), toDate: now.toISOString() },
-        resultsLimit: 15000,
+        search: { fromDate: goFrom.toISOString(), toDate: now.toISOString() },
+        resultsLimit: CONFIG.logRecordResultsLimit,
         propertySelector: { fields: ['device', 'dateTime'] }
       }]);
       // termógrafo/sondas (frescura + valor, para detectar ThermographStatusId=Error)
@@ -363,6 +376,7 @@
     function processResults(devices, results, now) {
       var idx = 0;
       var logRecords = results[idx++] || [];
+      el.truncationWarning.hidden = logRecords.length < CONFIG.logRecordResultsLimit;
       var cargoArrays = CARGO_DIAGNOSTICS.map(function () { return results[idx++] || []; });
       var ioxArrays = IOX_DIAGNOSTICS.map(function () { return results[idx++] || []; });
       var ioxEquippedRecords = IOX_EQUIPPED_DIAGNOSTIC_IDS.map(function () { return results[idx++] || []; });
