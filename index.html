@@ -194,14 +194,14 @@
 
   // IOX Ureader e IOX Cold
   var IOX_DIAGNOSTICS = [
-    { id: 'aLomz5it8GU-Z2Gwvd4kNRg', label: 'uReader', family: 'uReader' },
+    { id: 'DiagnosticExternalDeviceIntendiaId', label: 'uReader', family: 'uReader' },
     { id: 'azRjqdVaIxkSmbO5V-0khgA', label: 'uReader (Intendia) estado', family: 'uReader' },
     { id: 'DiagnosticExternalDeviceIOXColdChainId', label: 'IOX-COLD', family: 'IOX-COLD' },
     { id: 'DiagnosticIOXColdConnectionStatusId', label: 'IOX-COLD conexión', family: 'IOX-COLD' },
     { id: 'DiagnosticIOXColdRuggedConnectionStatusId', label: 'IOX-COLD RUGGED conexión', family: 'IOX-COLD' }
   ];
   
-  var IOX_EQUIPPED_DIAGNOSTIC_IDS = ['aLomz5it8GU-Z2Gwvd4kNRg', 'DiagnosticExternalDeviceIOXColdChainId'];
+  var IOX_EQUIPPED_DIAGNOSTIC_IDS = ['DiagnosticExternalDeviceIntendiaId', 'azRjqdVaIxkSmbO5V-0khgA', 'DiagnosticExternalDeviceIOXColdChainId'];
   var IOX_CONNECTION_VALUE_IDS = ['DiagnosticIOXColdConnectionStatusId', 'DiagnosticIOXColdRuggedConnectionStatusId'];
   var IOX_DISCONNECTED_VALUE = 0;
 
@@ -516,7 +516,8 @@
       // Determinar familia IOX equipada (uReader o IOX-COLD)
       var ioxEquippedDetails = {};
       ioxEquippedRecords.forEach(function (arr, i) {
-        var family = i === 0 ? 'uReader' : 'IOX-COLD';
+        var diagId = IOX_EQUIPPED_DIAGNOSTIC_IDS[i];
+        var family = (diagId === 'DiagnosticExternalDeviceIOXColdChainId') ? 'IOX-COLD' : 'uReader';
         arr.forEach(function(r) {
           if (r && r.device && r.device.id) {
             ioxEquippedDetails[r.device.id] = family;
